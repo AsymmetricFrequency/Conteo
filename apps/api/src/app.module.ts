@@ -8,6 +8,7 @@ import { StatsModule } from "./stats/stats.module";
 import { PreconteoModule } from "./preconteo/preconteo.module";
 import { E14Module } from "./e14/e14.module";
 import { AuthModule } from "./auth/auth.module";
+import { EncryptionModule } from "./encryption/encryption.module";
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuthModule } from "./auth/auth.module";
     PreconteoModule,
     E14Module,
     AuthModule,
+    EncryptionModule,
   ],
 })
 export class AppModule {}

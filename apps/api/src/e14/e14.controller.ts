@@ -46,4 +46,14 @@ export class E14Controller {
   ) {
     return this.service.submitAudit(body.txId, body.ocrResult, req.user.sub, req.user.email, req.user.name ?? "Auditor");
   }
+
+  /** POST /api/e14/analyze — analiza PDF via Gemini usando key encriptada del usuario */
+  @Post("analyze")
+  @UseGuards(JwtAuthGuard)
+  analyzeActa(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { pdfBase64: string },
+  ) {
+    return this.service.analyzeActa(req.user.sub, body.pdfBase64);
+  }
 }

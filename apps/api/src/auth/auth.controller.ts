@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, Request } from "@nestjs/common";
+import { Controller, Post, Delete, Get, Body, UseGuards, Request } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import { AuthService } from "./auth.service";
 
@@ -25,5 +25,20 @@ export class AuthController {
   @Get("community-stats")
   communityStats() {
     return this.service.communityStats();
+  }
+
+  @Post("gemini-key")
+  @UseGuards(AuthGuard("jwt"))
+  saveGeminiKey(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { key: string },
+  ) {
+    return this.service.saveGeminiKey(req.user.sub, body.key);
+  }
+
+  @Delete("gemini-key")
+  @UseGuards(AuthGuard("jwt"))
+  deleteGeminiKey(@Request() req: { user: { sub: string } }) {
+    return this.service.deleteGeminiKey(req.user.sub);
   }
 }

@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { EncryptionService } from "../encryption/encryption.service";
 
 const BASE_PDF = "https://e14segundavueltapresidente.registraduria.gov.co";
 
@@ -80,7 +81,10 @@ function validarAritmetica(ocr: OcrResult): string[] {
 
 @Injectable()
 export class E14Service {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly encryption: EncryptionService,
+  ) {}
 
   async pipelineStats() {
     const [counts, byDept, totalE14] = await Promise.all([
@@ -416,5 +420,67 @@ export class E14Service {
       totalActas: actas.length,
       municipios: resultados,
     };
+  }
+
+  async analyzeActa(userId: string, pdfBase64: string) {
+    const user = await this.prisma.conteoUser.findUnique({ where: { id: userId } });
+    if (!user?.geminiKeyEncrypted || !user?.geminiKeyIv) {
+      throw new Error("No tienes una API key de Gemini configurada");
+    }
+    const geminiKey = this.encryption.decrypt(user.geminiKeyEncrypted, user.geminiKeyIv);
+
+    const GEMINI_PROMPT = `Eres un sistema de auditoría electoral colombiana. Analiza este formulario E-14 (Acta de Escrutinio) de la segunda vuelta presidencial 2026.
+
+Extrae los datos con máxima precisión. La elección tiene solo 2 candidatos:
+- IVÁN CEPEDA CASTRO
+- ABELARDO DE LA ESPRIELLA
+
+Responde ÚNICAMENTE en JSON sin texto adicional:
+{
+  "tipoCopia": "CLAVEROS" o "DELEGADOS",
+  "candidatos": [
+    {"nombre": "IVÁN CEPEDA CASTRO", "votos": número},
+    {"nombre": "ABELARDO DE LA ESPRIELLA", "votos": número}
+  ],
+  "votosEnBlanco": número,
+  "votosNulos": número,
+  "votosNoMarcados": número,
+  "sumaTotal": número,
+  "nivelacion": {
+    "totalVotantesE11": número,
+    "totalVotosUrna": número,
+    "totalVotosIncinerados": número
+  },
+  "hayEnmiendas": true/false,
+  "enmiendaDetalle": "descripción si hay enmiendas",
+  "severidadAnomalia": "NINGUNA" o "BAJA" o "MEDIA" o "ALTA",
+  "observaciones": "notas para auditoría"
+}
+Si un número es ilegible, usa null.`;
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { text: GEMINI_PROMPT },
+            { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
+          ]}],
+        }),
+      }
+    );
+
+    const data = await res.json() as { error?: { message: string }; candidates?: Array<{ content: { parts: Array<{ text: string }> } }> };
+    if (data.error) throw new Error(data.error.message);
+
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (text.includes("```")) {
+      const parts = text.split("```");
+      text = parts[1] ?? text;
+      if (text.startsWith("json")) text = text.slice(4);
+    }
+    return JSON.parse(text.trim()) as unknown;
   }
 }

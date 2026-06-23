@@ -1,6 +1,7 @@
 import { Injectable, ConflictException, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../prisma/prisma.service";
+import { EncryptionService } from "../encryption/encryption.service";
 import * as bcrypt from "bcryptjs";
 
 @Injectable()
@@ -8,6 +9,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private encryption: EncryptionService,
   ) {}
 
   async register(email: string, name: string, password: string) {
@@ -39,9 +41,28 @@ export class AuthService {
   async findById(id: string) {
     const user = await this.prisma.conteoUser.findUnique({
       where: { id },
-      select: { id: true, email: true, name: true, role: true, actasAuditadas: true, createdAt: true },
+      select: { id: true, email: true, name: true, role: true, actasAuditadas: true, createdAt: true, geminiKeyEncrypted: true },
     });
-    return user;
+    if (!user) return null;
+    const { geminiKeyEncrypted, ...safeUser } = user;
+    return { ...safeUser, hasGeminiKey: !!geminiKeyEncrypted };
+  }
+
+  async saveGeminiKey(userId: string, key: string) {
+    const { encrypted, iv } = this.encryption.encrypt(key);
+    await this.prisma.conteoUser.update({
+      where: { id: userId },
+      data: { geminiKeyEncrypted: encrypted, geminiKeyIv: iv },
+    });
+    return { saved: true };
+  }
+
+  async deleteGeminiKey(userId: string) {
+    await this.prisma.conteoUser.update({
+      where: { id: userId },
+      data: { geminiKeyEncrypted: null, geminiKeyIv: null },
+    });
+    return { deleted: true };
   }
 
   async communityStats() {
