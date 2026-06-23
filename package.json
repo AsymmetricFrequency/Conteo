@@ -1,0 +1,28 @@
+{
+  "name": "conteo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Auditoría documental de formularios E-14 — detección de inconsistencias",
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "domain:test": "pnpm --filter @conteo/domain test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0",
+    "playwright": "^1.61.0",
+    "tsx": "^4.22.4",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0"
+  }
+}

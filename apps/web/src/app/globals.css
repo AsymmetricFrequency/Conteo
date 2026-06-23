@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --white: #ffffff;
+  --off-white: #f8f8f6;
+  --black: #0a0a0a;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-400: #9ca3af;
+  --gray-600: #4b5563;
+  --blue: #1d4ed8;
+  --blue-light: #eff6ff;
+  --red: #b91c1c;
+  --red-light: #fef2f2;
+  --yellow: #f59e0b;
+  --green: #16a34a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--white);
+  color: var(--black);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dividers */
+.divider {
+  border: none;
+  border-top: 1px solid var(--gray-200);
+}
+
+/* Clean card */
+.card {
+  background: white;
+  border: 1px solid var(--gray-200);
+}
+
+/* Thin border box */
+.box {
+  border: 1px solid var(--gray-200);
+  padding: 1.5rem;
+}
+
+/* Tabular numbers */
+.tabnum {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}

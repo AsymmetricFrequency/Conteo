@@ -1,0 +1,330 @@
+// Modelo de datos de Conteo — auditoría documental de E-14.
+//
+// Principios:
+//  - Evidencia inmutable: cada formulario referencia su archivo original
+//    (storageKey + sha256 + sourceUrl + capturedAt). El binario vive en
+//    object storage; aquí solo se guardan punteros y metadatos.
+//  - Trazabilidad: cada reporte sella rulesVersion y evaluatedAt; cada
+//    extracción sella ocrProvider/ocrVersion.
+//  - Revisión humana: los hallazgos tienen un estado de revisión; el
+//    sistema NUNCA marca "fraude" por sí mismo.
+//
+// PostGIS es opcional y se maneja por fuera de Prisma (migración SQL aparte)
+// si se requiere geolocalización de puestos.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Proceso electoral (PRESIDENCIAL, vuelta 1 o 2).
+model Eleccion {
+  id     String   @id @default(cuid())
+  tipo   String
+  vuelta Int
+  fecha  DateTime @db.Date
+
+  forms FormE14[]
+
+  @@unique([tipo, vuelta, fecha])
+}
+
+/// Mesa de votación, ubicada en la jerarquía electoral.
+model Mesa {
+  id                 String  @id @default(cuid())
+  departamentoCodigo String
+  departamento       String
+  municipioCodigo    String
+  municipio          String
+  zonaCodigo         String
+  puestoCodigo       String
+  puesto             String?
+  mesa               String
+  /// Clave estable dept-mun-zona-puesto-mesa.
+  ubicacionKey       String  @unique
+
+  forms FormE14[]
+
+  @@index([municipioCodigo])
+  @@index([departamentoCodigo])
+}
+
+/// Candidato/opción de la tarjeta electoral.
+model Candidato {
+  id         String  @id @default(cuid())
+  /// candidateId del dominio (estable entre fuentes).
+  externalId String  @unique
+  nombre     String
+  partido    String?
+
+  votos CandidatoVoto[]
+}
+
+/// Origen del documento. El E-14 oficial prevalece sobre el preconteo.
+enum SourceType {
+  REGISTRADURIA_OFICIAL
+  PRECONTEO
+  TESTIGO_FOTO
+  DATOS_ABIERTOS
+  CARGA_MANUAL
+}
+
+/// Formulario E-14 normalizado tras la extracción.
+model FormE14 {
+  id       String     @id @default(cuid())
+  formType String     @default("E14_PRESIDENCIA")
+  source   SourceType
+
+  eleccion   Eleccion @relation(fields: [eleccionId], references: [id])
+  eleccionId String
+  mesa       Mesa     @relation(fields: [mesaId], references: [id])
+  mesaId     String
+
+  // Celdas numéricas con metadatos de extracción (value/confidence/
+  // hasAmendment/illegible) almacenadas como JSON.
+  totalSufragantesE11 Json
+  votosEnBlanco       Json
+  votosNulos          Json
+  votosNoMarcados     Json
+  totalVotosUrna      Json
+
+  juradosEsperados       Int?
+  juradosFirmasPresentes Int?
+
+  votos      CandidatoVoto[]
+  evidencia  Evidencia?
+  extraccion Extraccion?
+  reportes   ValidationReport[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([mesaId])
+  @@index([source])
+}
+
+/// Voto de un candidato en una mesa (celda con metadatos).
+model CandidatoVoto {
+  id          String  @id @default(cuid())
+  form        FormE14 @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId      String
+  candidato   Candidato @relation(fields: [candidatoId], references: [id])
+  candidatoId String
+
+  value        Int?
+  confidence   Float?
+  hasAmendment Boolean @default(false)
+  illegible    Boolean @default(false)
+
+  @@unique([formId, candidatoId])
+  @@index([candidatoId])
+}
+
+/// Referencia inmutable a la evidencia original (cadena de custodia).
+model Evidencia {
+  id         String     @id @default(cuid())
+  form       FormE14    @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId     String     @unique
+  sourceType SourceType
+  sourceUrl  String?
+  storageKey String
+  sha256     String
+  mimeType   String
+  capturedAt DateTime
+  fileName   String?
+  byteSize   Int?
+
+  @@index([sha256])
+}
+
+/// Metadatos de la extracción OCR/visión (reproducibilidad).
+model Extraccion {
+  id                String   @id @default(cuid())
+  form              FormE14  @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId            String   @unique
+  ocrProvider       String
+  ocrVersion        String
+  extractedAt       DateTime
+  overallConfidence Float?
+}
+
+/// Resultado de correr el motor de validación sobre un formulario.
+model ValidationReport {
+  id           String    @id @default(cuid())
+  form         FormE14   @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId       String
+  rulesVersion String
+  evaluatedAt  DateTime
+  maxSeverity  Severity?
+  resumen      Json
+  createdAt    DateTime  @default(now())
+
+  findings Finding[]
+
+  @@index([formId])
+  @@index([maxSeverity])
+}
+
+enum Severity {
+  BAJA
+  MEDIA
+  ALTA
+}
+
+/// Estado de revisión humana de un hallazgo.
+enum EstadoHallazgo {
+  PENDIENTE
+  EN_REVISION
+  DESCARTADO
+  CONFIRMADO
+  RECLAMADO
+}
+
+/// Hallazgo individual producido por una regla. Insumo de revisión, no veredicto.
+model Finding {
+  id       String           @id @default(cuid())
+  report   ValidationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportId String
+  ruleId   String
+  category String
+  severity Severity
+  message  String
+  fields   String[]
+  details  Json?
+
+  estado      EstadoHallazgo @default(PENDIENTE)
+  revisadoPor String?
+  notas       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reportId])
+  @@index([severity])
+  @@index([category])
+  @@index([estado])
+}
+
+/// Snapshot de preconteo municipal (fuente: resultados.registraduria.gov.co).
+/// Una fila por municipio por actualización (numact). Los datos de la
+/// última actualización representan el estado final del preconteo.
+model PreconteoMunicipio {
+  id         String   @id @default(cuid())
+  /// Identificador de la elección, ej. "PR-2026-2"
+  eleccion   String
+  munCodigo  String
+  munNombre  String
+  deptCodigo String
+  deptNombre String
+
+  mesasTotal  Int
+  mesasEsc    Int
+  sufragantes Int
+  votnul      Int
+  votblan     Int
+
+  /// Número de actualización del preconteo en el momento de captura.
+  numact     String
+  capturedAt DateTime
+
+  votos PreconteoVoto[]
+
+  /// Solo un snapshot por (eleccion, municipio, actualización).
+  @@unique([eleccion, munCodigo, numact])
+  @@index([munCodigo])
+  @@index([deptCodigo])
+  @@index([eleccion])
+}
+
+/// Votos de un candidato en un snapshot municipal de preconteo.
+model PreconteoVoto {
+  id         String              @id @default(cuid())
+  snapshot   PreconteoMunicipio  @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  snapshotId String
+  codcan     String
+  cedula     String
+  nombre     String
+  vot        Int
+  pvot       String
+
+  @@index([snapshotId])
+  @@index([cedula])
+}
+
+/// Índice de actas E-14 del portal oficial (allTransmissionCodes.json).
+/// Registra el estado de descarga y OCR de cada acta publicada.
+model E14ActaIndex {
+  id                   String   @id @default(cuid())
+  idTransmissionCode   String   @unique
+  idDepartmentCode     String
+  municipalityCode     String
+  idZoneCode           String
+  standCode            String
+  numberStand          String
+  expectedName         String
+  idCorporationCode    String
+  idStand              String
+
+  /// Estado: pending | downloaded | ocr_done | ingested | error
+  status               String   @default("pending")
+  pdfPath              String?
+  /// URL pública del PDF en el portal de la Registraduría
+  sourceUrl            String?
+  ocrResult            Json?
+  ocrError             String?
+  /// Flags de fraude calculados: [{tipo, detalle, severidad}]
+  fraudFlags           Json?
+  /// Severidad máxima detectada: NINGUNA | BAJA | MEDIA | ALTA
+  fraudSeverity        String?
+  /// Usuario que reclamó esta acta para auditoría
+  claimedBy      String?
+  claimedAt      DateTime?
+  /// Usuario que completó la auditoría
+  auditedByName  String?
+  auditedByEmail String?
+  auditedAt      DateTime?
+  formId               String?
+  processedAt          DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([status])
+  @@index([idDepartmentCode])
+  @@index([municipalityCode])
+  @@index([fraudSeverity])
+}
+
+/// Bitácora de jobs de los workers (crawler/ocr/validación) para auditoría.
+model JobLog {
+  id        String   @id @default(cuid())
+  queue     String
+  jobId     String
+  status    String
+  payload   Json?
+  result    Json?
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([queue, status])
+  @@index([jobId])
+}
+
+/// Usuario de la plataforma Conteo (auditor ciudadano).
+model ConteoUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  /// Rol: AUDITOR | ADMIN
+  role         String   @default("AUDITOR")
+  actasAuditadas Int    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([email])
+}
