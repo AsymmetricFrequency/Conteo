@@ -1,126 +1,65 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [tab, setTab] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
+  async function signInWithGoogle() {
     setLoading(true);
-
-    try {
-      const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
-      const endpoint = tab === "login" ? "/auth/login" : "/auth/register";
-      const body = tab === "login"
-        ? { email, password }
-        : { email, name, password };
-
-      const res = await fetch(BASE + endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? "Error");
-
-      localStorage.setItem("conteo_token", data.token);
-      localStorage.setItem("conteo_user", JSON.stringify(data.user));
-      router.push("/auditar");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
-    } finally {
+    setError("");
+    const { error: err } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
+    if (err) {
+      setError(err.message);
       setLoading(false);
     }
   }
 
   return (
-    <div className="max-w-md mx-auto mt-10">
+    <div className="max-w-md mx-auto mt-16">
       <div className="border border-[#e5e7eb] p-8">
         <h1 className="text-xl font-bold mb-1">Unirte a la auditoría</h1>
-        <p className="text-sm text-[#6b7280] mb-6">
-          Ayuda a revisar los formularios E-14 de la segunda vuelta 2026
+        <p className="text-sm text-[#6b7280] mb-8">
+          Ayuda a revisar los 121,951 formularios E-14 de la segunda vuelta
+          presidencial 2026. Solo necesitas una cuenta de Google.
         </p>
 
-        <div className="flex border-b border-[#e5e7eb] mb-6">
-          {(["login", "register"] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === t
-                  ? "border-[#0a0a0a] text-[#0a0a0a]"
-                  : "border-transparent text-[#6b7280] hover:text-[#0a0a0a]"
-              }`}
-            >
-              {t === "login" ? "Ingresar" : "Registrarse"}
-            </button>
-          ))}
+        {error && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 mb-4">
+            {error}
+          </p>
+        )}
+
+        <button
+          onClick={signInWithGoogle}
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-3 border border-[#e5e7eb] px-4 py-3 text-sm font-medium hover:bg-[#f9fafb] transition-colors disabled:opacity-50"
+        >
+          <GoogleIcon />
+          {loading ? "Redirigiendo a Google..." : "Continuar con Google"}
+        </button>
+
+        <div className="mt-8 border-t border-[#e5e7eb] pt-6 space-y-2 text-xs text-[#9ca3af]">
+          <p>• Tu API key de Gemini nunca se almacena en nuestros servidores</p>
+          <p>• Solo procesamos datos oficiales publicados por la Registraduría</p>
+          <p>• Código abierto · MIT · Colombia 2026</p>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {tab === "register" && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Nombre</label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="Tu nombre completo"
-                required
-                className="w-full border border-[#e5e7eb] px-3 py-2 text-sm focus:outline-none focus:border-[#0a0a0a]"
-              />
-            </div>
-          )}
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="tu@email.com"
-              required
-              className="w-full border border-[#e5e7eb] px-3 py-2 text-sm focus:outline-none focus:border-[#0a0a0a]"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Contraseña</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              minLength={8}
-              className="w-full border border-[#e5e7eb] px-3 py-2 text-sm focus:outline-none focus:border-[#0a0a0a]"
-            />
-          </div>
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-[#0a0a0a] text-white py-2.5 text-sm font-medium hover:bg-[#374151] transition-colors disabled:opacity-50"
-          >
-            {loading ? "Procesando..." : tab === "login" ? "Ingresar" : "Crear cuenta"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-xs text-[#9ca3af] text-center">
-          Proyecto de auditoría ciudadana open source · Colombia 2026
-        </p>
       </div>
     </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
   );
 }

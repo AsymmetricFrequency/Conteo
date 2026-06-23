@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 interface ActaInfo {
   txId: string;
@@ -84,14 +85,29 @@ export default function AuditarPage() {
   const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
 
   useEffect(() => {
-    const t = localStorage.getItem("conteo_token");
-    const u = localStorage.getItem("conteo_user");
-    if (!t) { router.push("/login"); return; }
-    setToken(t);
-    if (u) setUser(JSON.parse(u));
-    const savedKey = sessionStorage.getItem("gemini_key");
-    if (savedKey) { setGeminiKey(savedKey); setKeyConfigured(true); }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setToken(session.access_token);
+        setUser({
+          name: session.user.user_metadata?.full_name ?? session.user.email?.split("@")[0] ?? "Auditor",
+          actasAuditadas: 0,
+        });
+      } else {
+        const t = localStorage.getItem("conteo_token");
+        const u = localStorage.getItem("conteo_user");
+        if (!t) { router.push("/login"); return; }
+        setToken(t);
+        if (u) setUser(JSON.parse(u));
+      }
+      const savedKey = sessionStorage.getItem("gemini_key");
+      if (savedKey) { setGeminiKey(savedKey); setKeyConfigured(true); }
+    });
   }, [router]);
+
+  async function getToken(): Promise<string> {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? token;
+  }
 
   function saveKey() {
     if (!geminiKey.trim()) return;
@@ -106,9 +122,10 @@ export default function AuditarPage() {
     setActa(null);
     setDraft(EMPTY);
     try {
+      const tk = await getToken();
       const res = await fetch(`${BASE}/e14/claim`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${tk}` },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? "Error");
@@ -206,9 +223,10 @@ export default function AuditarPage() {
         observaciones: draft.observaciones,
       };
 
+      const tk = await getToken();
       const res = await fetch(`${BASE}/e14/submit`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${tk}` },
         body: JSON.stringify({ txId: acta.txId, ocrResult }),
       });
       const data = await res.json();
@@ -238,13 +256,13 @@ export default function AuditarPage() {
     });
   }
 
-  function N(label: string, key: keyof OcrDraft) {
+  function N(label: string, key: Exclude<keyof OcrDraft, "tipoCopia" | "hayEnmiendas" | "observaciones">) {
     return (
       <div>
         <label className="block text-xs text-[#6b7280] mb-1">{label}</label>
         <input
           type="number"
-          value={draft[key] ?? ""}
+          value={(draft[key] as number | null) ?? ""}
           onChange={e => setDraft(d => ({ ...d, [key]: e.target.value === "" ? null : Number(e.target.value) }))}
           className="w-full border border-[#e5e7eb] px-2 py-1.5 text-sm focus:outline-none focus:border-[#0a0a0a]"
         />
@@ -262,7 +280,11 @@ export default function AuditarPage() {
           </p>
         </div>
         <button
-          onClick={() => { localStorage.clear(); router.push("/"); }}
+          onClick={async () => {
+            await supabase.auth.signOut();
+            localStorage.clear();
+            router.push("/");
+          }}
           className="text-xs text-[#9ca3af] hover:text-[#6b7280]"
         >
           Cerrar sesión
