@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3008/api";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -144,6 +144,8 @@ export interface E14RecentActa {
   deptCode: string;
   munCode: string;
   mesa: string;
+  pdfUrl?: string;
+  sourceUrl?: string;
   ocrResult: E14OcrResult | null;
   processedAt: string | null;
 }
@@ -169,6 +171,28 @@ export interface E14Comparacion {
   }>;
 }
 
+export interface FraudActa {
+  txId: string;
+  deptCode: string;
+  munCode: string;
+  zona: string;
+  stand: string;
+  mesa: string;
+  tipoCopia: string;
+  municipio: string;
+  departamento: string;
+  candidato0: { nombre: string; votos: number | null };
+  candidato1: { nombre: string; votos: number | null };
+  nivelacion: { totalVotantesE11?: number | null; totalVotosUrna?: number | null };
+  sumaTotal: number | null;
+  hayEnmiendas: boolean;
+  enmiendaDetalle: string;
+  severidadAnomalia: string;
+  flagsAritmetica: string[];
+  processedAt: string | null;
+  pdfUrl: string;
+}
+
 export interface E14FraudCheck {
   resumen: {
     totalAnalizadas: number;
@@ -177,26 +201,79 @@ export interface E14FraudCheck {
     conEnmiendaVisual: number;
     severidadAlta: number;
   };
-  irregularidades: Array<{
-    txId: string;
-    deptCode: string;
-    munCode: string;
-    zona: string;
-    stand: string;
-    mesa: string;
-    tipoCopia: string;
-    municipio: string;
-    departamento: string;
-    candidato0: { nombre: string; votos: number | null };
-    candidato1: { nombre: string; votos: number | null };
-    nivelacion: { totalVotantesE11?: number | null; totalVotosUrna?: number | null };
-    sumaTotal: number | null;
-    hayEnmiendas: boolean;
-    enmiendaDetalle: string;
-    severidadAnomalia: string;
-    flagsAritmetica: string[];
-    processedAt: string | null;
-  }>;
+  irregularidades: FraudActa[];
+}
+
+// ─── Geo / Browse types ───────────────────────────────────────────────────────
+
+export interface DeptStat {
+  code: string;
+  total: number;
+  auditadas: number;
+  pct: number;
+  conIrregularidades: number;
+  severidadAlta: number;
+}
+
+export interface MunStat {
+  code: string;
+  total: number;
+  auditadas: number;
+}
+
+export interface PreconteoDeptStat {
+  deptCodigo: string;
+  deptNombre: string;
+  mesasTotal: number;
+  mesasEsc: number;
+  sufragantes: number;
+  cepedaVotos: number;
+  espriellaVotos: number;
+  pctCepeda: number;
+  pctEspriella: number;
+  winner: "cepeda" | "espriella";
+  margen: number;
+}
+
+export interface MesaBrief {
+  id: string;
+  txId: string;
+  deptCode: string;
+  munCode: string;
+  zona: string;
+  stand: string;
+  mesa: string;
+  pdfUrl: string;
+  status: string;
+  auditedAt: string | null;
+  auditedByName: string | null;
+  tipoCopia: string | null;
+  municipio: string | null;
+  departamento: string | null;
+  candidato0: { nombre: string; votos: number | null } | null;
+  candidato1: { nombre: string; votos: number | null } | null;
+  sumaTotal: number | null;
+  totalSufragantes: number | null;
+  hayEnmiendas: boolean;
+  fraudFlags: string[] | null;
+  fraudSeverity: string | null;
+}
+
+export interface BrowseResult {
+  total: number;
+  offset: number;
+  limit: number;
+  actas: MesaBrief[];
+}
+
+export interface AuditorEntry {
+  rank: number;
+  name: string;
+  emailMasked: string;
+  actasAuditadas: number;
+  tiempoEstimadoMin: number;
+  costoEstimadoUSD: number;
+  miembroDesde: string;
 }
 
 // ─── API calls ────────────────────────────────────────────────────────────────
@@ -232,6 +309,7 @@ export const api = {
       const q = params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "";
       return apiFetch<PreconteoMunicipio[]>(`/preconteo${q}`);
     },
+    byDept: () => apiFetch<PreconteoDeptStat[]>("/preconteo/by-dept"),
   },
 
   e14: {
@@ -243,6 +321,17 @@ export const api = {
     comparacion: (dept?: string, minDiff = 3) => {
       const q = new URLSearchParams({ minDiff: String(minDiff), ...(dept ? { dept } : {}) });
       return apiFetch<E14Comparacion>(`/e14/comparacion?${q}`);
+    },
+    geoStats: () => apiFetch<DeptStat[]>("/e14/geo-stats"),
+    municipalities: (dept: string) => apiFetch<MunStat[]>(`/e14/municipalities?dept=${dept}`),
+    browse: (params: { dept?: string; mun?: string; status?: string; limit?: number; offset?: number }) => {
+      const q = new URLSearchParams();
+      if (params.dept) q.set("dept", params.dept);
+      if (params.mun) q.set("mun", params.mun);
+      if (params.status) q.set("status", params.status);
+      if (params.limit) q.set("limit", String(params.limit));
+      if (params.offset) q.set("offset", String(params.offset));
+      return apiFetch<BrowseResult>(`/e14/browse?${q}`);
     },
   },
 
@@ -266,6 +355,8 @@ export const api = {
       }),
     communityStats: () =>
       apiFetch<CommunitySats>("/auth/community-stats"),
+    auditors: () =>
+      apiFetch<AuditorEntry[]>("/auth/auditors"),
     claimActa: (token: string) =>
       apiFetch<ClaimResult>("/e14/claim", {
         method: "POST",

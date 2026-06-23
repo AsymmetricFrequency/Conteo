@@ -11,9 +11,12 @@ import { EncryptionService } from "../encryption/encryption.service";
   imports: [
     PrismaModule,
     PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET ?? "conteo-secret-2026-colombia",
-      signOptions: { expiresIn: "30d" },
+    JwtModule.registerAsync({
+      useFactory: () => {
+        const secret = process.env.JWT_SECRET;
+        if (!secret) throw new Error("JWT_SECRET env var is required");
+        return { secret, signOptions: { expiresIn: "30d" } };
+      },
     }),
   ],
   controllers: [AuthController],

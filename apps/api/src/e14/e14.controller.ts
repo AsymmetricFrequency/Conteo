@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Body, UseGuards, Request } from "@nestjs/common";
+import { Controller, Get, Post, Query, Body, UseGuards, Request, Param } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { E14Service } from "./e14.service";
 
@@ -47,13 +47,37 @@ export class E14Controller {
     return this.service.submitAudit(body.txId, body.ocrResult, req.user.sub, req.user.email, req.user.name ?? "Auditor");
   }
 
-  /** POST /api/e14/analyze — analiza PDF via Gemini usando key encriptada del usuario */
+  /** GET /api/e14/geo-stats — cobertura y fraude por departamento */
+  @Get("geo-stats")
+  geoStats() {
+    return this.service.geoStats();
+  }
+
+  /** GET /api/e14/municipalities?dept=XX — municipios de un departamento */
+  @Get("municipalities")
+  getMunicipalidades(@Query("dept") dept: string) {
+    return this.service.getMunicipalidades(dept);
+  }
+
+  /** GET /api/e14/browse — navegar actas por dept/mun con paginación */
+  @Get("browse")
+  browseMesas(
+    @Query("dept") dept?: string,
+    @Query("mun") mun?: string,
+    @Query("status") status?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
+    return this.service.browseMesas({ dept, mun, status }, limit ? parseInt(limit, 10) : 100, offset ? parseInt(offset, 10) : 0);
+  }
+
+  /** POST /api/e14/analyze — analiza PDF con IA usando key encriptada del usuario */
   @Post("analyze")
   @UseGuards(JwtAuthGuard)
   analyzeActa(
     @Request() req: { user: { sub: string } },
-    @Body() body: { pdfBase64: string },
+    @Body() body: { pdfBase64: string; provider?: "gemini" | "anthropic" },
   ) {
-    return this.service.analyzeActa(req.user.sub, body.pdfBase64);
+    return this.service.analyzeActa(req.user.sub, body.pdfBase64, body.provider);
   }
 }

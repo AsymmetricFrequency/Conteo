@@ -5,8 +5,8 @@
   "description": "Dashboard de auditoría E-14 — visor de alertas, evidencia y estadísticas",
   "scripts": {
     "build": "next build",
-    "dev": "next dev --port 3000",
-    "start": "next start --port 3000",
+    "dev": "next dev --port 3007",
+    "start": "next start --port 3007",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
@@ -16,6 +16,7 @@
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-simple-maps": "^3.0.0",
     "recharts": "^3.8.1"
   },
   "devDependencies": {

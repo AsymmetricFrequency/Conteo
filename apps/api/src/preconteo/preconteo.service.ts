@@ -118,6 +118,43 @@ export class PreconteoService {
     }));
   }
 
+  /** Resultados agregados por departamento para el mapa. */
+  async byDept() {
+    const resultados = await this.listResultados({});
+    const depts = new Map<string, {
+      deptCodigo: string; deptNombre: string;
+      mesasTotal: number; mesasEsc: number; sufragantes: number;
+      cepedaVotos: number; espriellaVotos: number;
+    }>();
+    for (const r of resultados) {
+      const prev = depts.get(r.deptCodigo) ?? {
+        deptCodigo: r.deptCodigo, deptNombre: r.deptNombre,
+        mesasTotal: 0, mesasEsc: 0, sufragantes: 0, cepedaVotos: 0, espriellaVotos: 0,
+      };
+      prev.mesasTotal += r.mesas.total;
+      prev.mesasEsc += r.mesas.escrutadas;
+      prev.sufragantes += r.sufragantes;
+      const cepeda = r.votos.find(v => v.nombre.toUpperCase().includes("CEPEDA"));
+      const espriella = r.votos.find(v =>
+        v.nombre.toUpperCase().includes("ESPRIELLA") || v.nombre.toUpperCase().includes("ESPRI")
+      );
+      prev.cepedaVotos += cepeda?.vot ?? 0;
+      prev.espriellaVotos += espriella?.vot ?? 0;
+      depts.set(r.deptCodigo, prev);
+    }
+    return [...depts.values()].map(d => {
+      const total = d.cepedaVotos + d.espriellaVotos;
+      const pctCepeda = total > 0 ? parseFloat(((d.cepedaVotos / total) * 100).toFixed(2)) : 0;
+      return {
+        ...d,
+        pctCepeda,
+        pctEspriella: parseFloat((100 - pctCepeda).toFixed(2)),
+        winner: pctCepeda >= 50 ? "cepeda" : "espriella" as "cepeda" | "espriella",
+        margen: parseFloat(Math.abs(pctCepeda - 50).toFixed(2)),
+      };
+    }).sort((a, b) => a.deptNombre.localeCompare(b.deptNombre));
+  }
+
   /** Resumen nacional / por departamento. */
   async summary(deptCodigo?: string) {
     const resultados = await this.listResultados({ dept: deptCodigo });

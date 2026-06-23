@@ -32,6 +32,12 @@ export class PreconteoController {
     return this.service.summary(dept);
   }
 
+  /** GET /api/preconteo/by-dept — resultados agregados por departamento para el mapa. */
+  @Get("by-dept")
+  async byDept() {
+    return this.service.byDept();
+  }
+
   /** GET /api/preconteo?dept=01&mun=01001&cedula=79262397 — resultados por municipio. */
   @Get()
   async list(@Query() query: PreconteoQuery) {

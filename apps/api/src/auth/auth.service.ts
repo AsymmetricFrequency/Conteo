@@ -41,11 +41,18 @@ export class AuthService {
   async findById(id: string) {
     const user = await this.prisma.conteoUser.findUnique({
       where: { id },
-      select: { id: true, email: true, name: true, role: true, actasAuditadas: true, createdAt: true, geminiKeyEncrypted: true },
+      select: {
+        id: true, email: true, name: true, role: true, actasAuditadas: true, createdAt: true,
+        geminiKeyEncrypted: true, anthropicKeyEncrypted: true,
+      },
     });
     if (!user) return null;
-    const { geminiKeyEncrypted, ...safeUser } = user;
-    return { ...safeUser, hasGeminiKey: !!geminiKeyEncrypted };
+    const { geminiKeyEncrypted, anthropicKeyEncrypted, ...safeUser } = user;
+    return {
+      ...safeUser,
+      hasGeminiKey: !!geminiKeyEncrypted,
+      hasAnthropicKey: !!anthropicKeyEncrypted,
+    };
   }
 
   async saveGeminiKey(userId: string, key: string) {
@@ -63,6 +70,40 @@ export class AuthService {
       data: { geminiKeyEncrypted: null, geminiKeyIv: null },
     });
     return { deleted: true };
+  }
+
+  async saveAnthropicKey(userId: string, key: string) {
+    const { encrypted, iv } = this.encryption.encrypt(key);
+    await this.prisma.conteoUser.update({
+      where: { id: userId },
+      data: { anthropicKeyEncrypted: encrypted, anthropicKeyIv: iv },
+    });
+    return { saved: true };
+  }
+
+  async deleteAnthropicKey(userId: string) {
+    await this.prisma.conteoUser.update({
+      where: { id: userId },
+      data: { anthropicKeyEncrypted: null, anthropicKeyIv: null },
+    });
+    return { deleted: true };
+  }
+
+  async auditorList() {
+    const users = await this.prisma.conteoUser.findMany({
+      where: { actasAuditadas: { gt: 0 } },
+      orderBy: { actasAuditadas: "desc" },
+      select: { id: true, name: true, email: true, actasAuditadas: true, createdAt: true },
+    });
+    return users.map((u, i) => ({
+      rank: i + 1,
+      name: u.name,
+      emailMasked: u.email.slice(0, 3) + "***@" + u.email.split("@")[1],
+      actasAuditadas: u.actasAuditadas,
+      tiempoEstimadoMin: u.actasAuditadas * 4,
+      costoEstimadoUSD: parseFloat((u.actasAuditadas * 0.0008).toFixed(4)),
+      miembroDesde: u.createdAt,
+    }));
   }
 
   async communityStats() {

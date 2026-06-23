@@ -422,60 +422,189 @@ export class E14Service {
     };
   }
 
-  async analyzeActa(userId: string, pdfBase64: string) {
+  async geoStats() {
+    const [allByDept, auditedByDept, fraudByDept, highFraud] = await Promise.all([
+      this.prisma.e14ActaIndex.groupBy({ by: ["idDepartmentCode"], _count: { id: true } }),
+      this.prisma.e14ActaIndex.groupBy({ by: ["idDepartmentCode"], where: { auditedAt: { not: null } }, _count: { id: true } }),
+      this.prisma.e14ActaIndex.groupBy({ by: ["idDepartmentCode"], where: { fraudSeverity: { in: ["MEDIA", "ALTA"] } }, _count: { id: true } }),
+      this.prisma.e14ActaIndex.groupBy({ by: ["idDepartmentCode"], where: { fraudSeverity: "ALTA" }, _count: { id: true } }),
+    ]);
+    const totMap = new Map(allByDept.map(r => [r.idDepartmentCode, r._count.id]));
+    const audMap = new Map(auditedByDept.map(r => [r.idDepartmentCode, r._count.id]));
+    const frdMap = new Map(fraudByDept.map(r => [r.idDepartmentCode, r._count.id]));
+    const hfMap = new Map(highFraud.map(r => [r.idDepartmentCode, r._count.id]));
+    return [...totMap.entries()].map(([code, total]) => {
+      const auditadas = audMap.get(code) ?? 0;
+      return { code, total, auditadas, pct: total > 0 ? parseFloat(((auditadas / total) * 100).toFixed(2)) : 0, conIrregularidades: frdMap.get(code) ?? 0, severidadAlta: hfMap.get(code) ?? 0 };
+    }).sort((a, b) => b.auditadas - a.auditadas);
+  }
+
+  async getMunicipalidades(dept: string) {
+    const [all, audited] = await Promise.all([
+      this.prisma.e14ActaIndex.groupBy({ by: ["municipalityCode"], where: { idDepartmentCode: dept }, _count: { id: true } }),
+      this.prisma.e14ActaIndex.groupBy({ by: ["municipalityCode"], where: { idDepartmentCode: dept, auditedAt: { not: null } }, _count: { id: true } }),
+    ]);
+    const audMap = new Map(audited.map(a => [a.municipalityCode, a._count.id]));
+    return all.map(m => ({ code: m.municipalityCode, total: m._count.id, auditadas: audMap.get(m.municipalityCode) ?? 0 })).sort((a, b) => b.total - a.total);
+  }
+
+  async browseMesas(filters: { dept?: string; mun?: string; status?: string }, limit = 100, offset = 0) {
+    const where: Record<string, unknown> = {};
+    if (filters.dept) where.idDepartmentCode = filters.dept;
+    if (filters.mun) where.municipalityCode = filters.mun;
+    if (filters.status) where.status = filters.status;
+    const [actas, total] = await Promise.all([
+      this.prisma.e14ActaIndex.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: [{ idDepartmentCode: "asc" }, { municipalityCode: "asc" }, { numberStand: "asc" }],
+        select: {
+          id: true, idTransmissionCode: true, idDepartmentCode: true, municipalityCode: true,
+          idZoneCode: true, standCode: true, numberStand: true, expectedName: true, sourceUrl: true,
+          status: true, auditedAt: true, auditedByName: true, claimedBy: true, claimedAt: true,
+          ocrResult: true, fraudFlags: true, fraudSeverity: true,
+        },
+      }),
+      this.prisma.e14ActaIndex.count({ where }),
+    ]);
+    return {
+      total, offset, limit,
+      actas: actas.map(a => {
+        const ocr = a.ocrResult as { candidatos?: Array<{ nombre: string; votos: number | null }>; sumaTotal?: number | null; totalSufragantes?: number | null; tipoCopia?: string; municipio?: string; departamento?: string; hayEnmiendas?: boolean } | null;
+        const c0 = ocr?.candidatos?.[0];
+        const c1 = ocr?.candidatos?.[1];
+        return {
+          id: a.id, txId: a.idTransmissionCode, deptCode: a.idDepartmentCode, munCode: a.municipalityCode,
+          zona: a.idZoneCode, stand: a.standCode, mesa: a.numberStand,
+          pdfUrl: a.sourceUrl ?? buildPdfUrl(a as Parameters<typeof buildPdfUrl>[0]),
+          status: a.status, auditedAt: a.auditedAt, auditedByName: a.auditedByName,
+          tipoCopia: ocr?.tipoCopia ?? null, municipio: ocr?.municipio ?? null, departamento: ocr?.departamento ?? null,
+          candidato0: c0 ? { nombre: c0.nombre, votos: c0.votos } : null,
+          candidato1: c1 ? { nombre: c1.nombre, votos: c1.votos } : null,
+          sumaTotal: ocr?.sumaTotal ?? null, totalSufragantes: ocr?.totalSufragantes ?? null,
+          hayEnmiendas: ocr?.hayEnmiendas ?? false,
+          fraudFlags: a.fraudFlags as string[] | null,
+          fraudSeverity: a.fraudSeverity,
+        };
+      }),
+    };
+  }
+
+  async analyzeActa(userId: string, pdfBase64: string, provider?: "gemini" | "anthropic") {
     const user = await this.prisma.conteoUser.findUnique({ where: { id: userId } });
-    if (!user?.geminiKeyEncrypted || !user?.geminiKeyIv) {
+
+    const hasGemini = !!(user?.geminiKeyEncrypted && user?.geminiKeyIv);
+    const hasAnthropic = !!(user?.anthropicKeyEncrypted && user?.anthropicKeyIv);
+
+    // Auto-select provider if not specified
+    const chosen = provider ?? (hasGemini ? "gemini" : hasAnthropic ? "anthropic" : null);
+
+    if (!chosen) {
+      throw new Error("No tienes ninguna API key configurada. Configura una key de Google Gemini o Anthropic.");
+    }
+    if (chosen === "gemini" && !hasGemini) {
       throw new Error("No tienes una API key de Gemini configurada");
     }
-    const geminiKey = this.encryption.decrypt(user.geminiKeyEncrypted, user.geminiKeyIv);
+    if (chosen === "anthropic" && !hasAnthropic) {
+      throw new Error("No tienes una API key de Anthropic configurada");
+    }
 
-    const GEMINI_PROMPT = `Eres un sistema de auditoría electoral colombiana. Analiza este formulario E-14 (Acta de Escrutinio) de la segunda vuelta presidencial 2026.
+    const OCR_PROMPT = `Eres un sistema experto de auditoría electoral colombiana. Analiza este formulario E-14 (Acta de Escrutinio de Mesa) de la Segunda Vuelta Presidencial 2026 publicado por la Registraduría Nacional del Estado Civil.
 
-Extrae los datos con máxima precisión. La elección tiene solo 2 candidatos:
-- IVÁN CEPEDA CASTRO
-- ABELARDO DE LA ESPRIELLA
+CONTEXTO DEL FORMULARIO E-14:
+- Es el acta oficial de escrutinio de una mesa de votación colombiana
+- Tiene dos secciones: la tabla de NIVELACIÓN (parte superior) y la tabla de VOTOS POR CANDIDATO
+- La nivelación incluye: total votantes E-11 (habilitados), votos en urna, votos incinerados
+- Los votos de candidatos se registran en renglones numerados con nombre y casilla de votos
+- Al final hay filas para: votos en blanco, votos nulos, votos no marcados, y SUMA TOTAL
+- Hay un sello y firma del jurado de votación
+- Puede haber dos versiones: DELEGADOS (copia para delegados de candidatos) o CLAVEROS (copia de claveros)
 
-Responde ÚNICAMENTE en JSON sin texto adicional:
+ESTA ELECCIÓN TIENE EXACTAMENTE 2 CANDIDATOS:
+1. IVÁN CEPEDA CASTRO (Pacto Histórico)
+2. ABELARDO DE LA ESPRIELLA (Defensores de la Patria)
+
+INSTRUCCIONES CRÍTICAS:
+- Lee los números con máxima atención, son manuscritos o impresos
+- Los números con tachones o correcciones: anota el valor legible más reciente y márcalo en enmiendaDetalle
+- Si hay un número escrito encima de otro, usa el más reciente
+- NO asumas ni calcules valores; solo extrae lo que está escrito
+- La SUMA TOTAL declarada en el acta puede no cuadrar con la suma de candidatos + blancos + nulos (eso es una irregularidad, no lo corrijas)
+- Severidad de anomalía: ALTA si hay errores aritméticos graves o votos > votantes; MEDIA si hay enmiendas + diferencias; BAJA si hay enmiendas menores; NINGUNA si todo es correcto
+
+Responde ÚNICAMENTE con el JSON, sin texto adicional, sin markdown:
 {
-  "tipoCopia": "CLAVEROS" o "DELEGADOS",
+  "tipoCopia": "DELEGADOS" o "CLAVEROS" o "DESCONOCIDO",
   "candidatos": [
-    {"nombre": "IVÁN CEPEDA CASTRO", "votos": número},
-    {"nombre": "ABELARDO DE LA ESPRIELLA", "votos": número}
+    {"nombre": "IVÁN CEPEDA CASTRO", "votos": número o null},
+    {"nombre": "ABELARDO DE LA ESPRIELLA", "votos": número o null}
   ],
-  "votosEnBlanco": número,
-  "votosNulos": número,
-  "votosNoMarcados": número,
-  "sumaTotal": número,
+  "votosEnBlanco": número o null,
+  "votosNulos": número o null,
+  "votosNoMarcados": número o null,
+  "sumaTotal": número o null,
+  "totalSufragantes": número o null,
   "nivelacion": {
-    "totalVotantesE11": número,
-    "totalVotosUrna": número,
-    "totalVotosIncinerados": número
+    "totalVotantesE11": número o null,
+    "totalVotosUrna": número o null,
+    "totalVotosIncinerados": número o null
   },
-  "hayEnmiendas": true/false,
-  "enmiendaDetalle": "descripción si hay enmiendas",
+  "hayEnmiendas": true o false,
+  "enmiendaDetalle": "descripción detallada de cada tachón, corrección o enmienda visible, o cadena vacía",
   "severidadAnomalia": "NINGUNA" o "BAJA" o "MEDIA" o "ALTA",
-  "observaciones": "notas para auditoría"
-}
-Si un número es ilegible, usa null.`;
+  "observaciones": "observaciones relevantes para el equipo auditor: sellos faltantes, firmas, ilegibilidad, etc."
+}`;
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-      {
+    let text: string;
+
+    if (chosen === "gemini") {
+      const geminiKey = this.encryption.decrypt(user!.geminiKeyEncrypted!, user!.geminiKeyIv!);
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [
+              { text: OCR_PROMPT },
+              { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
+            ]}],
+          }),
+        }
+      );
+      const data = await res.json() as { error?: { message: string }; candidates?: Array<{ content: { parts: Array<{ text: string }> } }> };
+      if (data.error) throw new Error(data.error.message);
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    } else {
+      const anthropicKey = this.encryption.decrypt(user!.anthropicKeyEncrypted!, user!.anthropicKeyIv!);
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
         body: JSON.stringify({
-          contents: [{ parts: [
-            { text: GEMINI_PROMPT },
-            { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
-          ]}],
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1024,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
+              },
+              { type: "text", text: OCR_PROMPT },
+            ],
+          }],
         }),
-      }
-    );
+      });
+      const data = await res.json() as { error?: { message: string }; content?: Array<{ type: string; text: string }> };
+      if (data.error) throw new Error(data.error.message);
+      text = data.content?.find((b) => b.type === "text")?.text ?? "";
+    }
 
-    const data = await res.json() as { error?: { message: string }; candidates?: Array<{ content: { parts: Array<{ text: string }> } }> };
-    if (data.error) throw new Error(data.error.message);
-
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     if (text.includes("```")) {
       const parts = text.split("```");
       text = parts[1] ?? text;

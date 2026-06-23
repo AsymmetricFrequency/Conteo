@@ -5,6 +5,9 @@ import { supabase } from "@/lib/supabase";
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [method, setMethod] = useState<"google" | "email">("google");
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
 
   async function signInWithGoogle() {
     setLoading(true);
@@ -19,14 +22,46 @@ export default function LoginPage() {
     }
   }
 
+  async function signInWithEmail() {
+    if (!email.trim()) return;
+    setLoading(true);
+    setError("");
+    const { error: err } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    });
+    if (err) {
+      setError(err.message);
+      setLoading(false);
+    } else {
+      setSent(true);
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="max-w-md mx-auto mt-16">
       <div className="border border-[#e5e7eb] p-8">
         <h1 className="text-xl font-bold mb-1">Unirte a la auditoría</h1>
-        <p className="text-sm text-[#6b7280] mb-8">
-          Ayuda a revisar los 121,951 formularios E-14 de la segunda vuelta
-          presidencial 2026. Solo necesitas una cuenta de Google.
+        <p className="text-sm text-[#6b7280] mb-6">
+          Ayuda a revisar los 121,951 formularios E-14 de la segunda vuelta presidencial 2026.
         </p>
+
+        {/* Method tabs */}
+        <div className="flex border border-[#e5e7eb] mb-6 text-xs">
+          <button
+            onClick={() => { setMethod("google"); setError(""); setSent(false); }}
+            className={`flex-1 py-2 font-medium transition-colors ${method === "google" ? "bg-[#0a0a0a] text-white" : "text-[#6b7280] hover:bg-[#f9fafb]"}`}
+          >
+            Continuar con Google
+          </button>
+          <button
+            onClick={() => { setMethod("email"); setError(""); setSent(false); }}
+            className={`flex-1 py-2 font-medium transition-colors ${method === "email" ? "bg-[#0a0a0a] text-white" : "text-[#6b7280] hover:bg-[#f9fafb]"}`}
+          >
+            Link por email
+          </button>
+        </div>
 
         {error && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 mb-4">
@@ -34,18 +69,67 @@ export default function LoginPage() {
           </p>
         )}
 
-        <button
-          onClick={signInWithGoogle}
-          disabled={loading}
-          className="w-full flex items-center justify-center gap-3 border border-[#e5e7eb] px-4 py-3 text-sm font-medium hover:bg-[#f9fafb] transition-colors disabled:opacity-50"
-        >
-          <GoogleIcon />
-          {loading ? "Redirigiendo a Google..." : "Continuar con Google"}
-        </button>
+        {method === "google" && (
+          <div>
+            <button
+              onClick={signInWithGoogle}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 border border-[#e5e7eb] px-4 py-3 text-sm font-medium hover:bg-[#f9fafb] transition-colors disabled:opacity-50"
+            >
+              <GoogleIcon />
+              {loading ? "Redirigiendo a Google..." : "Continuar con Google"}
+            </button>
+            <p className="text-xs text-[#9ca3af] mt-3 text-center">
+              Si ves un error de Google OAuth, usa el método <button onClick={() => setMethod("email")} className="underline text-blue-600">Link por email</button>
+            </p>
+          </div>
+        )}
+
+        {method === "email" && !sent && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-[#6b7280] mb-1">Tu correo electrónico</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && void signInWithEmail()}
+                placeholder="tu@correo.com"
+                className="w-full border border-[#e5e7eb] px-3 py-2 text-sm focus:outline-none focus:border-[#0a0a0a]"
+              />
+            </div>
+            <button
+              onClick={() => void signInWithEmail()}
+              disabled={loading || !email.trim()}
+              className="w-full bg-[#0a0a0a] text-white py-2.5 text-sm font-medium hover:bg-[#374151] disabled:opacity-50 transition-colors"
+            >
+              {loading ? "Enviando..." : "Enviar link de acceso"}
+            </button>
+            <p className="text-xs text-[#9ca3af]">
+              Te enviaremos un link de un solo uso a tu correo. No necesitas contraseña.
+            </p>
+          </div>
+        )}
+
+        {method === "email" && sent && (
+          <div className="border border-green-200 bg-green-50 p-5 text-center">
+            <div className="text-2xl mb-2">✉</div>
+            <p className="font-semibold text-green-800 text-sm">Link enviado a {email}</p>
+            <p className="text-xs text-green-700 mt-1">
+              Revisa tu bandeja de entrada y haz clic en el link para ingresar.
+            </p>
+            <button
+              onClick={() => { setSent(false); setEmail(""); }}
+              className="mt-3 text-xs text-green-600 underline"
+            >
+              Usar otro correo
+            </button>
+          </div>
+        )}
 
         <div className="mt-8 border-t border-[#e5e7eb] pt-6 space-y-2 text-xs text-[#9ca3af]">
-          <p>• Tu API key de Gemini nunca se almacena en nuestros servidores</p>
-          <p>• Solo procesamos datos oficiales publicados por la Registraduría</p>
+          <p>• Tu API key de IA se guarda cifrada (AES-256-GCM), nunca expuesta</p>
+          <p>• Solo procesamos datos oficiales de la Registraduría Nacional</p>
           <p>• Código abierto · MIT · Colombia 2026</p>
         </div>
       </div>

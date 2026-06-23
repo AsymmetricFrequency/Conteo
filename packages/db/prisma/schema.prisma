@@ -324,8 +324,11 @@ model ConteoUser {
   role         String   @default("AUDITOR")
   actasAuditadas Int    @default(0)
   /// Gemini API key encriptada con AES-256-GCM
-  geminiKeyEncrypted String?
-  geminiKeyIv        String?
+  geminiKeyEncrypted    String?
+  geminiKeyIv           String?
+  /// Anthropic API key encriptada con AES-256-GCM
+  anthropicKeyEncrypted String?
+  anthropicKeyIv        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

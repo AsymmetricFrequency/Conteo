@@ -15,10 +15,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const navLinks = [
     { href: "/", label: "Inicio" },
-    { href: "/preconteo", label: "Preconteo" },
+    { href: "/mapa", label: "Mapa" },
     { href: "/e14", label: "Actas E-14" },
     { href: "/comparacion", label: "E-14 vs Preconteo" },
     { href: "/alertas", label: "Alertas" },
+    { href: "/comunidad", label: "Comunidad" },
     { href: "/auditar", label: "Auditar" },
   ];
 

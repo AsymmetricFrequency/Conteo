@@ -6,7 +6,8 @@ export class EncryptionService {
   private readonly key: Buffer;
 
   constructor() {
-    const raw = process.env.ENCRYPTION_KEY ?? "conteo-dev-key-change-in-production-32b";
+    const raw = process.env.ENCRYPTION_KEY;
+    if (!raw) throw new Error("ENCRYPTION_KEY env var is required");
     this.key = createHash("sha256").update(raw).digest();
   }
 

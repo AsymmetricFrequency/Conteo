@@ -46,3 +46,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Claude Code — puede contener historial de comandos con credenciales
+.claude/settings.local.json

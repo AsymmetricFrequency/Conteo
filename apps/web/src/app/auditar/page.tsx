@@ -36,14 +36,19 @@ const EMPTY: OcrDraft = {
 export default function AuditarPage() {
   const router = useRouter();
   const { user, session, loading } = useAuth();
-  const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+  const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3008/api";
 
-  // Gemini key state (stored in backend)
+  // Key states
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState("");
-  const [savingKey, setSavingKey] = useState(false);
-  const [deletingKey, setDeletingKey] = useState(false);
+  const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
+  const [savingGemini, setSavingGemini] = useState(false);
+  const [savingAnthropic, setSavingAnthropic] = useState(false);
+  const [deletingGemini, setDeletingGemini] = useState(false);
+  const [deletingAnthropic, setDeletingAnthropic] = useState(false);
   const [keyChecked, setKeyChecked] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<"gemini" | "anthropic">("gemini");
 
   // Acta state
   const [acta, setActa] = useState<ActaInfo | null>(null);
@@ -57,91 +62,87 @@ export default function AuditarPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // Redirect to login if not authenticated
   useEffect(() => {
     if (!loading && !user) router.push("/login");
   }, [loading, user, router]);
 
-  // Check if user has a Gemini key stored in backend
-  const checkGeminiKey = useCallback(async () => {
+  const checkKeys = useCallback(async () => {
     if (!session?.access_token) return;
     try {
       const res = await fetch(`${BASE}/auth/me`, {
         headers: { authorization: `Bearer ${session.access_token}` },
       });
       if (res.ok) {
-        const data = await res.json() as { hasGeminiKey?: boolean };
+        const data = await res.json() as { hasGeminiKey?: boolean; hasAnthropicKey?: boolean };
         setHasGeminiKey(!!data.hasGeminiKey);
+        setHasAnthropicKey(!!data.hasAnthropicKey);
+        // Auto-select the available provider
+        if (data.hasAnthropicKey && !data.hasGeminiKey) setSelectedProvider("anthropic");
+        else setSelectedProvider("gemini");
       }
-    } catch {
-      // ignore
-    } finally {
-      setKeyChecked(true);
-    }
+    } catch { /* ignore */ }
+    finally { setKeyChecked(true); }
   }, [BASE, session?.access_token]);
 
   useEffect(() => {
-    if (session?.access_token) {
-      void checkGeminiKey();
-    }
-  }, [session?.access_token, checkGeminiKey]);
+    if (session?.access_token) void checkKeys();
+  }, [session?.access_token, checkKeys]);
 
-  async function getToken() {
-    return session?.access_token ?? "";
-  }
+  const getToken = () => session?.access_token ?? "";
 
-  async function saveGeminiKey() {
-    if (!geminiKeyInput.trim()) return;
-    setSavingKey(true); setError("");
+  async function saveKey(provider: "gemini" | "anthropic", key: string) {
+    const endpoint = provider === "gemini" ? "gemini-key" : "anthropic-key";
+    if (provider === "gemini") setSavingGemini(true); else setSavingAnthropic(true);
+    setError("");
     try {
-      const tk = await getToken();
-      const res = await fetch(`${BASE}/auth/gemini-key`, {
+      const res = await fetch(`${BASE}/auth/${endpoint}`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${tk}` },
-        body: JSON.stringify({ key: geminiKeyInput.trim() }),
+        headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ key: key.trim() }),
       });
       if (!res.ok) {
         const d = await res.json() as { message?: string };
         throw new Error(d.message ?? "Error al guardar la key");
       }
-      setHasGeminiKey(true);
-      setGeminiKeyInput("");
-      setMessage("API key guardada de forma segura");
+      if (provider === "gemini") { setHasGeminiKey(true); setGeminiKeyInput(""); setSelectedProvider("gemini"); }
+      else { setHasAnthropicKey(true); setAnthropicKeyInput(""); setSelectedProvider("anthropic"); }
+      setMessage(`API key de ${provider === "gemini" ? "Gemini" : "Anthropic"} guardada`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
-      setSavingKey(false);
+      if (provider === "gemini") setSavingGemini(false); else setSavingAnthropic(false);
     }
   }
 
-  async function deleteGeminiKey() {
-    setDeletingKey(true); setError("");
+  async function deleteKey(provider: "gemini" | "anthropic") {
+    const endpoint = provider === "gemini" ? "gemini-key" : "anthropic-key";
+    if (provider === "gemini") setDeletingGemini(true); else setDeletingAnthropic(true);
+    setError("");
     try {
-      const tk = await getToken();
-      const res = await fetch(`${BASE}/auth/gemini-key`, {
+      const res = await fetch(`${BASE}/auth/${endpoint}`, {
         method: "DELETE",
-        headers: { authorization: `Bearer ${tk}` },
+        headers: { authorization: `Bearer ${getToken()}` },
       });
       if (!res.ok) {
         const d = await res.json() as { message?: string };
         throw new Error(d.message ?? "Error al eliminar la key");
       }
-      setHasGeminiKey(false);
-      setMessage("API key eliminada");
+      if (provider === "gemini") { setHasGeminiKey(false); if (selectedProvider === "gemini") setSelectedProvider("anthropic"); }
+      else { setHasAnthropicKey(false); if (selectedProvider === "anthropic") setSelectedProvider("gemini"); }
+      setMessage(`API key de ${provider === "gemini" ? "Gemini" : "Anthropic"} eliminada`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
-      setDeletingKey(false);
+      if (provider === "gemini") setDeletingGemini(false); else setDeletingAnthropic(false);
     }
   }
 
   async function claimActa() {
     setClaiming(true); setError(""); setMessage(""); setActa(null); setDraft(EMPTY);
     try {
-      const tk = await getToken();
       const res = await fetch(`${BASE}/e14/claim`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${tk}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
       });
       const data = await res.json() as { claimed?: boolean; message?: string } & ActaInfo;
       if (!res.ok) throw new Error(data.message ?? "Error al reclamar acta");
@@ -154,21 +155,18 @@ export default function AuditarPage() {
     }
   }
 
-  async function analyzeWithGemini() {
+  async function analyzeWithAI() {
     if (!acta) return;
     setAnalyzing(true); setError("");
     try {
-      // Download PDF in browser (bypasses Akamai CDN)
       const pdfRes = await fetch(acta.pdfUrl);
       const base64 = await blobToBase64(await pdfRes.blob());
       const pdfBase64 = base64.split(",")[1];
 
-      // Send to backend — backend decrypts user's key and calls Gemini
-      const tk = await getToken();
       const res = await fetch(`${BASE}/e14/analyze`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${tk}` },
-        body: JSON.stringify({ pdfBase64 }),
+        headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ pdfBase64, provider: selectedProvider }),
       });
 
       if (!res.ok) {
@@ -211,9 +209,9 @@ export default function AuditarPage() {
     if (!acta) return;
     setSubmitting(true); setError("");
     try {
-      const tk = await getToken();
       const ocrResult = {
-        tipoCopia: draft.tipoCopia, ocrEngine: "gemini-flash-citizen",
+        tipoCopia: draft.tipoCopia,
+        ocrEngine: `${selectedProvider}-citizen`,
         candidatos: [
           { nombre: "IVÁN CEPEDA CASTRO", votos: draft.cepedaVotos },
           { nombre: "ABELARDO DE LA ESPRIELLA", votos: draft.espriellaVotos },
@@ -227,7 +225,7 @@ export default function AuditarPage() {
       };
       const res = await fetch(`${BASE}/e14/submit`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${tk}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ txId: acta.txId, ocrResult }),
       });
       const data = await res.json() as { message?: string };
@@ -264,7 +262,6 @@ export default function AuditarPage() {
     );
   }
 
-  // Loading auth
   if (loading || !keyChecked) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
@@ -273,14 +270,17 @@ export default function AuditarPage() {
     );
   }
 
-  if (!user) return null; // Redirect handled by useEffect
+  if (!user) return null;
 
   const name = user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? "Auditor";
+  const hasAnyKey = hasGeminiKey || hasAnthropicKey;
+  const hasBothKeys = hasGeminiKey && hasAnthropicKey;
+
+  const providerLabel = selectedProvider === "gemini" ? "Google Gemini" : "Anthropic Claude";
 
   return (
     <div className="max-w-5xl mx-auto">
 
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-xl font-bold">Auditoría ciudadana</h1>
         <p className="text-sm text-[#6b7280] mt-0.5">
@@ -288,54 +288,207 @@ export default function AuditarPage() {
         </p>
       </div>
 
-      {/* PASO 1: Gemini API Key */}
-      {!hasGeminiKey && (
+      {/* PASO 1: Configurar claves de IA */}
+      {!hasAnyKey && (
         <div className="border border-[#e5e7eb] p-6 mb-6">
           <div className="flex items-start gap-4">
             <div className="w-8 h-8 rounded-full bg-[#0a0a0a] text-white flex items-center justify-center text-sm font-bold shrink-0">1</div>
             <div className="flex-1">
-              <h2 className="font-semibold mb-1">Configura tu API key de Google Gemini</h2>
-              <p className="text-sm text-[#6b7280] mb-4">
-                Tu key se guarda encriptada en nuestros servidores (AES-256-GCM).{" "}
-                Solo se usa para analizar actas. Puedes eliminarla en cualquier momento.{" "}
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" className="underline text-blue-600">
-                  Obtén tu key gratis →
-                </a>
+              <h2 className="font-semibold mb-1">Configura tu API key de IA</h2>
+              <p className="text-sm text-[#6b7280] mb-5">
+                Tu key se guarda encriptada en nuestros servidores (AES-256-GCM). Solo se usa para analizar actas. Puedes eliminarla cuando quieras.
               </p>
-              {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={geminiKeyInput}
-                  onChange={e => setGeminiKeyInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && void saveGeminiKey()}
-                  placeholder="AIzaSy..."
-                  className="flex-1 border border-[#e5e7eb] px-3 py-2 text-sm focus:outline-none focus:border-[#0a0a0a] font-mono"
-                />
-                <button
-                  onClick={() => void saveGeminiKey()}
-                  disabled={!geminiKeyInput.trim() || savingKey}
-                  className="bg-[#0a0a0a] text-white px-5 py-2 text-sm font-medium hover:bg-[#374151] disabled:opacity-40"
-                >
-                  {savingKey ? "Guardando..." : "Guardar"}
-                </button>
+
+              {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+
+              {/* Model + cost spec */}
+              <div className="grid grid-cols-2 gap-3 mb-5 text-xs">
+                <div className="border border-[#e5e7eb] bg-[#f9fafb] p-3 space-y-1">
+                  <div className="font-mono font-semibold text-[10px] text-[#6b7280] uppercase tracking-wide">gemini-1.5-flash</div>
+                  <div className="font-bold text-sm">Google Gemini Flash</div>
+                  <div className="text-[#059669] font-semibold">~$0 / acta (plan gratis)</div>
+                  <div className="text-[#9ca3af]">15 req/min · 1M tokens/min · gratis para volúmenes pequeños</div>
+                  <div className="text-[#6b7280]">En escala: $0.075/M tokens entrada · ~$0.0004/acta</div>
+                </div>
+                <div className="border border-[#e5e7eb] bg-[#f9fafb] p-3 space-y-1">
+                  <div className="font-mono font-semibold text-[10px] text-[#6b7280] uppercase tracking-wide">claude-haiku-4-5-20251001</div>
+                  <div className="font-bold text-sm">Anthropic Claude Haiku</div>
+                  <div className="text-orange-600 font-semibold">~$0.001 USD / acta</div>
+                  <div className="text-[#9ca3af]">$0.80/M tokens entrada · $4/M tokens salida</div>
+                  <div className="text-[#6b7280]">Alta precisión en documentos. 100 actas ≈ $0.10 USD</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Gemini */}
+                <div className="border border-[#e5e7eb] p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold">Google Gemini Flash</span>
+                    <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5">Gratis</span>
+                  </div>
+                  <p className="text-xs text-[#6b7280] mb-3">
+                    15 req/min gratis.{" "}
+                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" className="underline text-blue-600">
+                      Obtener key →
+                    </a>
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={geminiKeyInput}
+                      onChange={e => setGeminiKeyInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && void saveKey("gemini", geminiKeyInput)}
+                      placeholder="AIzaSy..."
+                      className="flex-1 min-w-0 border border-[#e5e7eb] px-2 py-1.5 text-sm focus:outline-none focus:border-[#0a0a0a] font-mono"
+                    />
+                    <button
+                      onClick={() => void saveKey("gemini", geminiKeyInput)}
+                      disabled={!geminiKeyInput.trim() || savingGemini}
+                      className="bg-[#0a0a0a] text-white px-3 py-1.5 text-sm font-medium hover:bg-[#374151] disabled:opacity-40 shrink-0"
+                    >
+                      {savingGemini ? "..." : "Guardar"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Anthropic */}
+                <div className="border border-[#e5e7eb] p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold">Anthropic Claude Haiku</span>
+                    <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5">~$0.001/acta</span>
+                  </div>
+                  <p className="text-xs text-[#6b7280] mb-3">
+                    claude-haiku-4-5 — máxima precisión.{" "}
+                    <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" className="underline text-blue-600">
+                      Obtener key →
+                    </a>
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={anthropicKeyInput}
+                      onChange={e => setAnthropicKeyInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && void saveKey("anthropic", anthropicKeyInput)}
+                      placeholder="sk-ant-api03-..."
+                      className="flex-1 min-w-0 border border-[#e5e7eb] px-2 py-1.5 text-sm focus:outline-none focus:border-[#0a0a0a] font-mono"
+                    />
+                    <button
+                      onClick={() => void saveKey("anthropic", anthropicKeyInput)}
+                      disabled={!anthropicKeyInput.trim() || savingAnthropic}
+                      className="bg-[#0a0a0a] text-white px-3 py-1.5 text-sm font-medium hover:bg-[#374151] disabled:opacity-40 shrink-0"
+                    >
+                      {savingAnthropic ? "..." : "Guardar"}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Key configurada */}
-      {hasGeminiKey && !acta && (
-        <div className="text-xs text-green-700 bg-green-50 border border-green-200 px-4 py-2 mb-4 flex items-center justify-between">
-          <span>API key de Gemini configurada en el servidor</span>
-          <button
-            onClick={() => void deleteGeminiKey()}
-            disabled={deletingKey}
-            className="underline ml-4 disabled:opacity-50"
-          >
-            {deletingKey ? "Eliminando..." : "Eliminar key"}
-          </button>
+      {/* Keys configuradas */}
+      {hasAnyKey && !acta && (
+        <div className="border border-[#e5e7eb] p-4 mb-4">
+          <div className="flex flex-wrap gap-4 items-start justify-between">
+            <div className="flex flex-wrap gap-3">
+              {/* Gemini status */}
+              {hasGeminiKey ? (
+                <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 px-3 py-1.5">
+                  <span>Gemini Flash ✓</span>
+                  <button
+                    onClick={() => void deleteKey("gemini")}
+                    disabled={deletingGemini}
+                    className="underline text-green-600 disabled:opacity-50"
+                  >
+                    {deletingGemini ? "..." : "Eliminar"}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-[#6b7280] border border-[#e5e7eb] px-3 py-1.5">Gemini Flash — sin key</div>
+                  <div className="flex gap-1">
+                    <input
+                      type="password"
+                      value={geminiKeyInput}
+                      onChange={e => setGeminiKeyInput(e.target.value)}
+                      placeholder="AIzaSy..."
+                      className="border border-[#e5e7eb] px-2 py-1 text-xs font-mono w-36 focus:outline-none focus:border-[#0a0a0a]"
+                    />
+                    <button
+                      onClick={() => void saveKey("gemini", geminiKeyInput)}
+                      disabled={!geminiKeyInput.trim() || savingGemini}
+                      className="text-xs bg-[#0a0a0a] text-white px-2 py-1 disabled:opacity-40"
+                    >
+                      {savingGemini ? "..." : "Agregar"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Anthropic status */}
+              {hasAnthropicKey ? (
+                <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 px-3 py-1.5">
+                  <span>Anthropic Claude ✓</span>
+                  <button
+                    onClick={() => void deleteKey("anthropic")}
+                    disabled={deletingAnthropic}
+                    className="underline text-green-600 disabled:opacity-50"
+                  >
+                    {deletingAnthropic ? "..." : "Eliminar"}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-[#6b7280] border border-[#e5e7eb] px-3 py-1.5">Anthropic — sin key</div>
+                  <div className="flex gap-1">
+                    <input
+                      type="password"
+                      value={anthropicKeyInput}
+                      onChange={e => setAnthropicKeyInput(e.target.value)}
+                      placeholder="sk-ant-..."
+                      className="border border-[#e5e7eb] px-2 py-1 text-xs font-mono w-36 focus:outline-none focus:border-[#0a0a0a]"
+                    />
+                    <button
+                      onClick={() => void saveKey("anthropic", anthropicKeyInput)}
+                      disabled={!anthropicKeyInput.trim() || savingAnthropic}
+                      className="text-xs bg-[#0a0a0a] text-white px-2 py-1 disabled:opacity-40"
+                    >
+                      {savingAnthropic ? "..." : "Agregar"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Provider selector — only when both keys are present */}
+            {hasBothKeys && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-[#6b7280]">Usar:</span>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="provider"
+                    value="gemini"
+                    checked={selectedProvider === "gemini"}
+                    onChange={() => setSelectedProvider("gemini")}
+                  />
+                  Gemini
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="provider"
+                    value="anthropic"
+                    checked={selectedProvider === "anthropic"}
+                    onChange={() => setSelectedProvider("anthropic")}
+                  />
+                  Claude
+                </label>
+              </div>
+            )}
+          </div>
+          {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
         </div>
       )}
 
@@ -345,7 +498,7 @@ export default function AuditarPage() {
       )}
 
       {/* PASO 2: Obtener acta */}
-      {hasGeminiKey && !acta && !noMore && (
+      {hasAnyKey && !acta && !noMore && (
         <div className="border border-[#e5e7eb] p-6 mb-6">
           <div className="flex items-start gap-4">
             <div className="w-8 h-8 rounded-full bg-[#0a0a0a] text-white flex items-center justify-center text-sm font-bold shrink-0">2</div>
@@ -381,7 +534,20 @@ export default function AuditarPage() {
             <span>
               <strong>Mesa {acta.mesa}</strong> · Zona {acta.zona} · {acta.municipio}, {acta.departamento}
             </span>
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
+              {hasBothKeys && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-[#6b7280]">IA:</span>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="provider-acta" value="gemini" checked={selectedProvider === "gemini"} onChange={() => setSelectedProvider("gemini")} />
+                    Gemini
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="provider-acta" value="anthropic" checked={selectedProvider === "anthropic"} onChange={() => setSelectedProvider("anthropic")} />
+                    Claude
+                  </label>
+                </div>
+              )}
               <a href={acta.pdfUrl} target="_blank" rel="noopener" className="text-xs text-[#6b7280] underline">
                 Abrir PDF
               </a>
@@ -403,11 +569,11 @@ export default function AuditarPage() {
               </div>
               <iframe src={acta.pdfUrl} className="w-full border border-[#e5e7eb]" style={{ height: 580 }} title="Acta E-14" />
               <button
-                onClick={() => void analyzeWithGemini()}
+                onClick={() => void analyzeWithAI()}
                 disabled={analyzing}
                 className="mt-3 w-full bg-blue-600 text-white py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
-                {analyzing ? "Analizando con Gemini..." : "Analizar con IA"}
+                {analyzing ? `Analizando con ${providerLabel}...` : `Analizar con ${providerLabel}`}
               </button>
             </div>
 
@@ -465,7 +631,6 @@ export default function AuditarPage() {
                   />
                 </div>
 
-                {/* Verificación aritmética */}
                 {draft.cepedaVotos != null && draft.espriellaVotos != null && (
                   (() => {
                     const suma = draft.cepedaVotos + draft.espriellaVotos + (draft.blancos ?? 0) + (draft.nulos ?? 0);

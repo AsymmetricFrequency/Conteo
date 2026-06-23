@@ -27,6 +27,11 @@ export class AuthController {
     return this.service.communityStats();
   }
 
+  @Get("auditors")
+  auditorList() {
+    return this.service.auditorList();
+  }
+
   @Post("gemini-key")
   @UseGuards(AuthGuard("jwt"))
   saveGeminiKey(
@@ -40,5 +45,20 @@ export class AuthController {
   @UseGuards(AuthGuard("jwt"))
   deleteGeminiKey(@Request() req: { user: { sub: string } }) {
     return this.service.deleteGeminiKey(req.user.sub);
+  }
+
+  @Post("anthropic-key")
+  @UseGuards(AuthGuard("jwt"))
+  saveAnthropicKey(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { key: string },
+  ) {
+    return this.service.saveAnthropicKey(req.user.sub, body.key);
+  }
+
+  @Delete("anthropic-key")
+  @UseGuards(AuthGuard("jwt"))
+  deleteAnthropicKey(@Request() req: { user: { sub: string } }) {
+    return this.service.deleteAnthropicKey(req.user.sub);
   }
 }
