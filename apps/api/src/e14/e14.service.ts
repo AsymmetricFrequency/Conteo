@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { EncryptionService } from "../encryption/encryption.service";
+import { REG_TO_DANE, DANE_TO_REG } from "../common/dept-codes";
 
 const BASE_PDF = "https://e14segundavueltapresidente.registraduria.gov.co";
 
@@ -433,16 +434,18 @@ export class E14Service {
     const audMap = new Map(auditedByDept.map(r => [r.idDepartmentCode, r._count.id]));
     const frdMap = new Map(fraudByDept.map(r => [r.idDepartmentCode, r._count.id]));
     const hfMap = new Map(highFraud.map(r => [r.idDepartmentCode, r._count.id]));
-    return [...totMap.entries()].map(([code, total]) => {
-      const auditadas = audMap.get(code) ?? 0;
-      return { code, total, auditadas, pct: total > 0 ? parseFloat(((auditadas / total) * 100).toFixed(2)) : 0, conIrregularidades: frdMap.get(code) ?? 0, severidadAlta: hfMap.get(code) ?? 0 };
+    return [...totMap.entries()].map(([regCode, total]) => {
+      const code = REG_TO_DANE[regCode] ?? regCode;
+      const auditadas = audMap.get(regCode) ?? 0;
+      return { code, total, auditadas, pct: total > 0 ? parseFloat(((auditadas / total) * 100).toFixed(2)) : 0, conIrregularidades: frdMap.get(regCode) ?? 0, severidadAlta: hfMap.get(regCode) ?? 0 };
     }).sort((a, b) => b.auditadas - a.auditadas);
   }
 
   async getMunicipalidades(dept: string) {
+    const regDept = DANE_TO_REG[dept] ?? dept;
     const [all, audited] = await Promise.all([
-      this.prisma.e14ActaIndex.groupBy({ by: ["municipalityCode"], where: { idDepartmentCode: dept }, _count: { id: true } }),
-      this.prisma.e14ActaIndex.groupBy({ by: ["municipalityCode"], where: { idDepartmentCode: dept, auditedAt: { not: null } }, _count: { id: true } }),
+      this.prisma.e14ActaIndex.groupBy({ by: ["municipalityCode"], where: { idDepartmentCode: regDept }, _count: { id: true } }),
+      this.prisma.e14ActaIndex.groupBy({ by: ["municipalityCode"], where: { idDepartmentCode: regDept, auditedAt: { not: null } }, _count: { id: true } }),
     ]);
     const audMap = new Map(audited.map(a => [a.municipalityCode, a._count.id]));
     return all.map(m => ({ code: m.municipalityCode, total: m._count.id, auditadas: audMap.get(m.municipalityCode) ?? 0 })).sort((a, b) => b.total - a.total);
@@ -450,7 +453,7 @@ export class E14Service {
 
   async browseMesas(filters: { dept?: string; mun?: string; status?: string }, limit = 100, offset = 0) {
     const where: Record<string, unknown> = {};
-    if (filters.dept) where.idDepartmentCode = filters.dept;
+    if (filters.dept) where.idDepartmentCode = DANE_TO_REG[filters.dept] ?? filters.dept;
     if (filters.mun) where.municipalityCode = filters.mun;
     if (filters.status) where.status = filters.status;
     const [actas, total] = await Promise.all([

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import type { IngestMunicipioDto, PreconteoQuery } from "./preconteo.dto";
+import { REG_TO_DANE, DANE_TO_REG } from "../common/dept-codes";
 
 const ELECCION_ID = "PR-2026-2";
 
@@ -67,9 +68,10 @@ export class PreconteoService {
 
   /** Resultados finales (último numact) por municipio. */
   async listResultados(query: PreconteoQuery) {
+    const regDept = query.dept ? (DANE_TO_REG[query.dept] ?? query.dept) : undefined;
     const where = {
       eleccion: ELECCION_ID,
-      ...(query.dept ? { deptCodigo: query.dept } : {}),
+      ...(regDept ? { deptCodigo: regDept } : {}),
       ...(query.mun ? { munCodigo: query.mun } : {}),
     };
 
@@ -118,7 +120,7 @@ export class PreconteoService {
     }));
   }
 
-  /** Resultados agregados por departamento para el mapa. */
+  /** Resultados agregados por departamento para el mapa (keyed by DANE code). */
   async byDept() {
     const resultados = await this.listResultados({});
     const depts = new Map<string, {
@@ -127,8 +129,9 @@ export class PreconteoService {
       cepedaVotos: number; espriellaVotos: number;
     }>();
     for (const r of resultados) {
-      const prev = depts.get(r.deptCodigo) ?? {
-        deptCodigo: r.deptCodigo, deptNombre: r.deptNombre,
+      const daneCode = REG_TO_DANE[r.deptCodigo] ?? r.deptCodigo;
+      const prev = depts.get(daneCode) ?? {
+        deptCodigo: daneCode, deptNombre: r.deptNombre,
         mesasTotal: 0, mesasEsc: 0, sufragantes: 0, cepedaVotos: 0, espriellaVotos: 0,
       };
       prev.mesasTotal += r.mesas.total;
@@ -140,7 +143,7 @@ export class PreconteoService {
       );
       prev.cepedaVotos += cepeda?.vot ?? 0;
       prev.espriellaVotos += espriella?.vot ?? 0;
-      depts.set(r.deptCodigo, prev);
+      depts.set(daneCode, prev);
     }
     return [...depts.values()].map(d => {
       const total = d.cepedaVotos + d.espriellaVotos;

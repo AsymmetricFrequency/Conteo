@@ -239,51 +239,52 @@ export default function MapaPage() {
   const selectedGeoStat = geoStats.find(d => d.code === selectedDept);
 
   return (
-    <div className="space-y-0">
-      {/* Header */}
-      <div className="border-b border-[#e5e7eb] pb-4 mb-4">
-        <div className="text-xs font-semibold text-[#9ca3af] uppercase tracking-widest mb-1">
-          Colombia 2026 · Segunda vuelta
-        </div>
-        <h1 className="text-2xl font-black text-[#0a0a0a]">
-          Presidente y Vicepresidente
-        </h1>
+    // -my-10 -mx-6 escapes AppShell's px-6 py-10 so the map fills the full viewport
+    <div className="-my-10 -mx-6 flex flex-col" style={{ height: "calc(100vh - 3.5rem)" }}>
 
-        {/* Mesas informadas bar */}
-        {mesasTotal > 0 && (
-          <div className="mt-3 flex items-center gap-4 text-sm">
-            <span className="text-[#6b7280]">
-              <strong className="text-[#0a0a0a]">Mesas informadas</strong>{" "}
-              {n(mesasEsc)} de {n(mesasTotal)}
-            </span>
-            <div className="flex-1 h-2 bg-[#f3f4f6] max-w-xs">
-              <div className="h-full bg-[#0a0a0a]" style={{ width: `${pctMesas}%` }} />
+      {/* ── Compact header ── */}
+      <div className="shrink-0 border-b border-[#e5e7eb] px-6 py-2.5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div>
+            <div className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-widest leading-none mb-0.5">
+              Colombia 2026 · Segunda vuelta
             </div>
-            <span className="font-bold tabnum">{pctMesas.toFixed(2)}%</span>
+            <h1 className="text-base font-black text-[#0a0a0a] leading-tight">Presidente y Vicepresidente</h1>
           </div>
-        )}
+          {mesasTotal > 0 && (
+            <div className="hidden sm:flex items-center gap-2 text-xs text-[#6b7280] border-l border-[#e5e7eb] pl-4">
+              <span>Mesas <strong className="text-[#0a0a0a]">{n(mesasEsc)}/{n(mesasTotal)}</strong></span>
+              <div className="w-16 h-1.5 bg-[#f3f4f6]">
+                <div className="h-full bg-[#0a0a0a]" style={{ width: `${pctMesas}%` }} />
+              </div>
+              <strong className="text-[#0a0a0a] tabnum">{pctMesas.toFixed(1)}%</strong>
+            </div>
+          )}
+        </div>
+        {/* Tabs inline with header */}
+        <div className="flex items-center border border-[#e5e7eb]">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => { setTab(t.id); resetDrill(); }}
+              className={`px-4 py-1.5 text-xs font-medium transition-colors border-r last:border-r-0 border-[#e5e7eb] ${
+                tab === t.id
+                  ? "bg-[#0a0a0a] text-white"
+                  : "text-[#6b7280] hover:bg-[#f9fafb]"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-[#e5e7eb] mb-5">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => { setTab(t.id); resetDrill(); }}
-            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              tab === t.id
-                ? "border-[#0a0a0a] text-[#0a0a0a]"
-                : "border-transparent text-[#6b7280] hover:text-[#0a0a0a]"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* ── Content — fills remaining height ── */}
+      <div className="flex-1 overflow-hidden">
 
       {/* ─── TAB: RESULTADOS ─── */}
       {tab === "resultados" && (
-        <div className="space-y-6">
+        <div className="h-full overflow-y-auto px-6 py-6 space-y-6">
           <h2 className="text-lg font-bold">Candidatos a la Presidencia</h2>
 
           {totalSufragantes === 0 ? (
@@ -357,9 +358,9 @@ export default function MapaPage() {
 
       {/* ─── TAB: POR TERRITORIO ─── */}
       {tab === "territorio" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0" style={{ minHeight: 620 }}>
-          {/* Left: Map */}
-          <div className="border border-[#e5e7eb] relative" style={{ minHeight: 420 }}>
+        <div className="h-full grid grid-cols-1 lg:grid-cols-2">
+          {/* Left: Map — full height */}
+          <div className="border-r border-[#e5e7eb] relative h-full">
             <ColombiaMap
               mode="preconteo"
               preconteoStats={deptStats}
@@ -397,8 +398,8 @@ export default function MapaPage() {
             </div>
           </div>
 
-          {/* Right: Dept list */}
-          <div className="border border-l-0 border-[#e5e7eb] flex flex-col overflow-hidden">
+          {/* Right: Dept list — scrolls independently */}
+          <div className="flex flex-col h-full overflow-hidden border-t lg:border-t-0 border-[#e5e7eb]">
             {/* Selected dept detail */}
             {selectedDept && selectedPreconteoDept && (
               <div className="border-b border-[#e5e7eb] p-4 bg-[#f9fafb]">
@@ -473,7 +474,7 @@ export default function MapaPage() {
 
       {/* ─── TAB: COBERTURA E-14 ─── */}
       {tab === "cobertura" && (
-        <div className="space-y-4">
+        <div className="h-full flex flex-col overflow-hidden">
           {/* Stats bar */}
           <div className="grid grid-cols-4 border border-[#e5e7eb] divide-x divide-[#e5e7eb]">
             {[
@@ -489,7 +490,7 @@ export default function MapaPage() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4" style={{ minHeight: 560 }}>
+          <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-5">
             {/* Left: drill-down panel */}
             <div className="lg:col-span-2 border border-[#e5e7eb] flex flex-col overflow-hidden">
               {/* Breadcrumb */}
@@ -615,7 +616,7 @@ export default function MapaPage() {
             </div>
 
             {/* Map */}
-            <div className="lg:col-span-3 border border-[#e5e7eb] relative" style={{ minHeight: 420 }}>
+            <div className="lg:col-span-3 border-l border-[#e5e7eb] relative h-full">
               <ColombiaMap
                 mode="coverage"
                 stats={geoStats}
@@ -647,6 +648,8 @@ export default function MapaPage() {
           </div>
         </div>
       )}
+
+      </div> {/* end content area */}
 
       {selectedActa && (
         <MesaModal acta={selectedActa} onClose={() => setSelectedActa(null)} />

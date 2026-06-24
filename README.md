@@ -106,7 +106,7 @@ Registraduría (portal oficial)
 | Base de datos | PostgreSQL + Prisma |
 | OCR / visión artificial | Google Gemini Flash 1.5 (desde el navegador) |
 | Frontend | Next.js 15 + Tailwind CSS |
-| Autenticación | JWT (30 días) |
+| Autenticación | Supabase Auth (Google OAuth + Magic Link) |
 | Descarga de PDFs | Playwright (Firefox) + sesión Akamai |
 | Monorepo | pnpm workspaces + Turborepo |
 
@@ -156,8 +156,8 @@ cd packages/db && npx prisma migrate dev
 
 # 5. Levantar todos los servicios
 pnpm dev
-# API en http://localhost:3001
-# Web en http://localhost:3005
+# API en http://localhost:3008
+# Web en http://localhost:3007
 ```
 
 ### Descargar actas para procesar (sin OCR)
